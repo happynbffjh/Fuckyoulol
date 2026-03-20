@@ -1,8 +1,19 @@
 """
-API with email/pass/proxy params and TLS fingerprinting for outgoing requests.
-Run: python app.py
-Usage: http://localhost:5000/?email=user@gmail.com&pass=secret&proxy=ip:port:user:pass
-Admin: http://localhost:5000/admin (user=admin00, pass=admin00)
+DAZN API – TLS fingerprinting, proxy support, admin panel, API keys.
+
+Run:  pip install -r requirements.txt  &&  python app.py
+Admin: https://your-domain.com/admin  (user=admin00, pass=admin00)
+       Create API keys there; all endpoints require a valid key.
+
+Endpoints (GET or POST; params in query or JSON/form body):
+  /         – Echo params. Requires api_key. Response: JSON.
+  /dazn     – DAZN combo check (hit, proxy). Requires api_key. Response: JSON { success, line, data, time }.
+  /check    – Same as /dazn, always requires api_key. Response: JSON.
+  /fetch    – TLS-fingerprinted GET to url. Requires api_key. Response: JSON.
+  /admin    – Admin login & create API keys (no key needed).
+
+Auth:  X-API-Key: <key>  header  OR  api_key=<key>  in query/body.
+All responses are JSON in the body.
 """
 import json
 import os
@@ -23,7 +34,7 @@ app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "change-me-in-production-" + secrets.token_hex(16))
 
 # Admin panel credentials
-ADMIN_USER = "hafizur"
+ADMIN_USER = "admin00"
 ADMIN_PASS = "admin00"
 
 # API keys storage (same directory as app)
@@ -154,15 +165,41 @@ def _is_api_key_valid(key_value):
     return False
 
 
-def _require_api_key_or_optional():
-    """If any API keys exist, require valid key in X-API-Key or api_key param. Else allow."""
-    keys = _load_api_keys()
-    if not keys:
-        return None
-    key = request.headers.get("X-API-Key") or request.args.get("api_key", "")
+def _require_api_key():
+    """Require valid API key for all API endpoints. Returns None if valid, else 401 Response with JSON body."""
+    key = request.headers.get("X-API-Key") or _get_param("api_key")
     if _is_api_key_valid(key):
         return None
-    return Response("Invalid or missing API key. Use X-API-Key header or api_key= query.", status=401, mimetype="text/plain")
+    body = json.dumps({
+        "error": "Invalid or missing API key",
+        "message": "Use X-API-Key header or api_key in body. Create keys at /admin.",
+    })
+    return Response(body, status=401, mimetype="application/json; charset=utf-8")
+
+
+def _get_param(name, default=""):
+    """Get param from GET query or POST body (JSON or form). Returns string."""
+    if request.method == "POST":
+        try:
+            data = request.get_json(silent=True) if request.is_json else request.form.to_dict()
+            if data and name in data:
+                v = data.get(name)
+                return (v or default) if v is None else str(v).strip()
+        except Exception:
+            pass
+    return (request.args.get(name) or default).strip()
+
+
+def _get_params():
+    """Get all params as dict: from GET args or POST body (JSON or form)."""
+    if request.method == "POST":
+        try:
+            if request.is_json:
+                return request.get_json(silent=True) or {}
+            return request.form.to_dict()
+        except Exception:
+            return {}
+    return request.args.to_dict()
 
 
 def fetch_with_tls_fingerprint(url: str, proxy=None, timeout=10.0):
@@ -336,20 +373,19 @@ def build_hit_line(email, pass_, country="", status="", auto_renew="", plan="", 
     return " | ".join(parts)
 
 
-@app.route("/", methods=["GET"])
+@app.route("/", methods=["GET", "POST"])
 def api():
-    """Query params: email, pass, hit (email:pass), proxy (optional). ?admin -> admin panel."""
+    """GET or POST: email, pass, hit (email:pass), proxy (optional). ?admin -> admin panel. Response: raw text or JSON."""
     if request.args.get("admin") is not None:
         return redirect(url_for("admin_login"))
-    err = _require_api_key_or_optional()
+    err = _require_api_key()
     if err:
         return err
-    hit_raw = request.args.get("hit", "").strip()
-    email = request.args.get("email", "").strip()
-    pass_ = request.args.get("pass", "").strip()
-    proxy_raw = request.args.get("proxy", "").strip()
+    hit_raw = _get_param("hit")
+    email = _get_param("email")
+    pass_ = _get_param("pass")
+    proxy_raw = _get_param("proxy")
 
-    # Decode URL-encoded values (e.g. %7E -> ~)
     if hit_raw:
         hit_raw = unquote(hit_raw)
         hit_email, hit_pass = parse_combo(hit_raw)
@@ -365,18 +401,17 @@ def api():
 
     proxy = parse_proxy(proxy_raw)
 
-    # Hit line format: email:pass | Country = X | Status = X | ...
-    resp_format = request.args.get("format", "").strip().lower()
+    resp_format = _get_param("format").lower()
     if resp_format == "hit" or resp_format == "line":
-        country = unquote(request.args.get("Country", "").strip())
-        status = unquote(request.args.get("Status", "").strip())
-        auto_renew = unquote(request.args.get("AutoRenew", "").strip())
-        plan = unquote(request.args.get("Plan", "").strip())
-        currency = unquote(request.args.get("Currency", "").strip())
-        price = unquote(request.args.get("Price", "").strip())
-        plan_period = unquote(request.args.get("PlanPeriod", "").strip())
-        expiry_date = unquote(request.args.get("ExpiryDate", "").strip())
-        config_by = unquote(request.args.get("ConfigBy", "").strip())
+        country = unquote(_get_param("Country"))
+        status = unquote(_get_param("Status"))
+        auto_renew = unquote(_get_param("AutoRenew"))
+        plan = unquote(_get_param("Plan"))
+        currency = unquote(_get_param("Currency"))
+        price = unquote(_get_param("Price"))
+        plan_period = unquote(_get_param("PlanPeriod"))
+        expiry_date = unquote(_get_param("ExpiryDate"))
+        config_by = unquote(_get_param("ConfigBy"))
         line = build_hit_line(
             email, pass_,
             country=country or "N/A",
@@ -389,7 +424,7 @@ def api():
             expiry_date=expiry_date or "N/A",
             config_by=config_by or "N/A",
         )
-        return Response(line, mimetype="text/plain; charset=utf-8")
+        return Response(json.dumps({"line": line}), mimetype="application/json; charset=utf-8")
 
     payload = {
         "email": email,
@@ -399,26 +434,25 @@ def api():
         "proxy_parsed": proxy is not None,
     }
 
-    # Optional: if you want to hit an external URL with TLS fingerprint + proxy, pass ?url=...
-    check_url = request.args.get("url", "").strip()
+    check_url = _get_param("url")
     if check_url:
         check_url = unquote(check_url)
         result = fetch_with_tls_fingerprint(check_url, proxy=proxy)
         payload["tls_fingerprint_request"] = result
 
-    return jsonify(payload)
+    return Response(json.dumps(payload), mimetype="application/json; charset=utf-8")
 
 
-@app.route("/dazn", methods=["GET"])
+@app.route("/dazn", methods=["GET", "POST"])
 def dazn():
-    """DAZN check. Params: hit=email:pass (or email+pass), proxy= (optional)."""
-    err = _require_api_key_or_optional()
+    """DAZN check. GET or POST: hit=email:pass (or email+pass), proxy= (optional). Response: raw text."""
+    err = _require_api_key()
     if err:
         return err
-    hit_raw = request.args.get("hit", "").strip()
-    email = request.args.get("email", "").strip()
-    pass_ = request.args.get("pass", "").strip()
-    proxy_raw = request.args.get("proxy", "").strip()
+    hit_raw = _get_param("hit")
+    email = _get_param("email")
+    pass_ = _get_param("pass")
+    proxy_raw = _get_param("proxy")
 
     if hit_raw:
         hit_raw = unquote(hit_raw)
@@ -428,7 +462,7 @@ def dazn():
         pass_ = unquote(pass_)
 
     if not email or not pass_:
-        return Response("email:pass required (hit= or email= & pass=)", status=400, mimetype="text/plain; charset=utf-8")
+        return Response(json.dumps({"error": "email:pass required (hit= or email= & pass=)"}), status=400, mimetype="application/json; charset=utf-8")
 
     proxy_raw = unquote(proxy_raw) if proxy_raw else ""
     proxy = parse_proxy(proxy_raw)
@@ -453,28 +487,35 @@ def dazn():
             config_by=config_by,
             time_taken=time_str,
         )
-        return Response(line, mimetype="text/plain; charset=utf-8")
+        body = json.dumps({
+            "success": True,
+            "line": line,
+            "data": {"country": country, "status": status, "auto_renew": auto_renew, "plan": plan, "currency": currency, "price": price, "plan_period": plan_period, "expiry_date": expiry_date},
+            "time": time_str,
+        })
+        return Response(body, mimetype="application/json; charset=utf-8")
     fail_line = f"{email}:{pass_} | Error = {err} | Time = {time_str}"
-    if full_response:
-        fail_line += "\n\nResponse:\n" + full_response
-    return Response(fail_line, status=200, mimetype="text/plain; charset=utf-8")
+    body = json.dumps({
+        "success": False,
+        "line": fail_line,
+        "error": err,
+        "response": full_response or "",
+        "time": time_str,
+    })
+    return Response(body, status=200, mimetype="application/json; charset=utf-8")
 
 
-@app.route("/check", methods=["GET"])
+@app.route("/check", methods=["GET", "POST"])
 def check():
-    """
-    DAZN check – API key required.
-    Params: api_key= (or X-API-Key header), hit=email:pass (or email= & pass=), proxy= (optional).
-    Same response as /dazn (hit line or error + full response + time).
-    """
-    key = request.headers.get("X-API-Key") or request.args.get("api_key", "").strip()
+    """DAZN check – API key required. GET or POST: api_key (or header), hit, email, pass, proxy. Response: JSON body."""
+    key = request.headers.get("X-API-Key") or _get_param("api_key")
     if not _is_api_key_valid(key):
-        return Response("API key required. Use api_key= query or X-API-Key header. Create keys at /admin.", status=401, mimetype="text/plain; charset=utf-8")
+        return Response(json.dumps({"error": "Invalid or missing API key", "message": "Use X-API-Key header or api_key in body. Create keys at /admin."}), status=401, mimetype="application/json; charset=utf-8")
 
-    hit_raw = request.args.get("hit", "").strip()
-    email = request.args.get("email", "").strip()
-    pass_ = request.args.get("pass", "").strip()
-    proxy_raw = request.args.get("proxy", "").strip()
+    hit_raw = _get_param("hit")
+    email = _get_param("email")
+    pass_ = _get_param("pass")
+    proxy_raw = _get_param("proxy")
 
     if hit_raw:
         hit_raw = unquote(hit_raw)
@@ -484,7 +525,7 @@ def check():
         pass_ = unquote(pass_)
 
     if not email or not pass_:
-        return Response("email:pass required (hit= or email= & pass=)", status=400, mimetype="text/plain; charset=utf-8")
+        return Response(json.dumps({"error": "email:pass required (hit= or email= & pass=)"}), status=400, mimetype="application/json; charset=utf-8")
 
     proxy_raw = unquote(proxy_raw) if proxy_raw else ""
     proxy = parse_proxy(proxy_raw)
@@ -509,32 +550,40 @@ def check():
             config_by=config_by,
             time_taken=time_str,
         )
-        return Response(line, mimetype="text/plain; charset=utf-8")
+        body = json.dumps({
+            "success": True,
+            "line": line,
+            "data": {"country": country, "status": status, "auto_renew": auto_renew, "plan": plan, "currency": currency, "price": price, "plan_period": plan_period, "expiry_date": expiry_date},
+            "time": time_str,
+        })
+        return Response(body, mimetype="application/json; charset=utf-8")
     fail_line = f"{email}:{pass_} | Error = {err} | Time = {time_str}"
-    if full_response:
-        fail_line += "\n\nResponse:\n" + full_response
-    return Response(fail_line, status=200, mimetype="text/plain; charset=utf-8")
+    body = json.dumps({
+        "success": False,
+        "line": fail_line,
+        "error": err,
+        "response": full_response or "",
+        "time": time_str,
+    })
+    return Response(body, status=200, mimetype="application/json; charset=utf-8")
 
 
-@app.route("/fetch", methods=["GET"])
+@app.route("/fetch", methods=["GET", "POST"])
 def fetch():
-    """
-    GET with TLS fingerprint and optional proxy.
-    Params: url=..., proxy=ip:port:user:pass (optional)
-    """
-    err = _require_api_key_or_optional()
+    """GET or POST: url=..., proxy= (optional). Response: raw JSON."""
+    err = _require_api_key()
     if err:
         return err
-    url = request.args.get("url", "").strip()
+    url = _get_param("url")
     if not url:
-        return jsonify({"error": "Missing url parameter"}), 400
+        return Response('{"error": "Missing url parameter"}', status=400, mimetype="application/json; charset=utf-8")
     url = unquote(url)
-    proxy_raw = request.args.get("proxy", "").strip()
+    proxy_raw = _get_param("proxy")
     if proxy_raw:
         proxy_raw = unquote(proxy_raw)
     proxy = parse_proxy(proxy_raw)
     result = fetch_with_tls_fingerprint(url, proxy=proxy)
-    return jsonify(result)
+    return Response(json.dumps(result), mimetype="application/json; charset=utf-8")
 
 
 # ---------- Admin panel ----------
