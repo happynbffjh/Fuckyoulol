@@ -81,7 +81,7 @@ sudo systemctl start dazn-api
 3. **DAZN check (recommended: /check or /dazn)**  
    - **GET:** `https://your-domain.com/check?api_key=KEY&hit=email%3Apass&proxy=...`  
    - **POST:** Body `{"api_key":"KEY","hit":"email:pass","proxy":"ip:port:user:pass"}`  
-   - Response: `{"success": true|false, "line": "...", "data": {...} or "error": "...", "response": "...", "time": "X.XXs"}`
+   - Response: `{"success": true, "data": {...}, "time": "X.XXs"}` or `{"success": false, "error": "...", "response": "...", "time": "X.XXs"}`
 
 4. **Other endpoints**  
    - **/** – Echo params (JSON).  
@@ -91,13 +91,15 @@ See **README.md** for full endpoint list, examples, and proxy formats.
 
 ---
 
-## 5. Proxy formats accepted
+## 5. Proxy formats (all supported in payload `proxy`)
+
+The `proxy` field in the request payload supports every format below.
 
 | Format | Example |
 |--------|--------|
 | `ip:port` | `1.2.3.4:8080` |
 | `ip:port:user:pass` | `1.2.3.4:8080:myuser:mypass` |
-| `user:pass@host:port` | `myuser:mypass@1.2.3.4:8080` |
+| `user:pass@host:port` | `myuser:mypass@px1260303.pointtoserver.com:10780` |
 | `http://host:port` | `http://1.2.3.4:8080` |
 | `http://user:pass@host:port` | `http://user:pass@1.2.3.4:8080` |
 | `https://...` | `https://user:pass@proxy.com:443` |

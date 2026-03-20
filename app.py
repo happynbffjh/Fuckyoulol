@@ -7,8 +7,8 @@ Admin: https://your-domain.com/admin  (user=admin00, pass=admin00)
 
 Endpoints (GET or POST; params in query or JSON/form body):
   /         – Echo params. Requires api_key. Response: JSON.
-  /dazn     – DAZN combo check (hit, proxy). Requires api_key. Response: JSON { success, line, data, time }.
-  /check    – Same as /dazn, always requires api_key. Response: JSON.
+  /dazn     – DAZN check. Payload: api_key, email, pass, proxy (optional; all proxy formats supported; no proxy = device). Response: JSON { success, data, time }.
+  /check    – Same as /dazn. Payload: api_key, email, pass, proxy (optional; all formats; no proxy = device).
   /fetch    – TLS-fingerprinted GET to url. Requires api_key. Response: JSON.
   /admin    – Admin login & create API keys (no key needed).
 
@@ -462,8 +462,9 @@ def dazn():
         pass_ = unquote(pass_)
 
     if not email or not pass_:
-        return Response(json.dumps({"error": "email:pass required (hit= or email= & pass=)"}), status=400, mimetype="application/json; charset=utf-8")
+        return Response(json.dumps({"error": "email and pass required (or hit=email:pass)"}), status=400, mimetype="application/json; charset=utf-8")
 
+    # If no proxy in payload, use device (no proxy)
     proxy_raw = unquote(proxy_raw) if proxy_raw else ""
     proxy = parse_proxy(proxy_raw)
 
@@ -489,15 +490,12 @@ def dazn():
         )
         body = json.dumps({
             "success": True,
-            "line": line,
             "data": {"country": country, "status": status, "auto_renew": auto_renew, "plan": plan, "currency": currency, "price": price, "plan_period": plan_period, "expiry_date": expiry_date},
             "time": time_str,
         })
         return Response(body, mimetype="application/json; charset=utf-8")
-    fail_line = f"{email}:{pass_} | Error = {err} | Time = {time_str}"
     body = json.dumps({
         "success": False,
-        "line": fail_line,
         "error": err,
         "response": full_response or "",
         "time": time_str,
@@ -525,8 +523,9 @@ def check():
         pass_ = unquote(pass_)
 
     if not email or not pass_:
-        return Response(json.dumps({"error": "email:pass required (hit= or email= & pass=)"}), status=400, mimetype="application/json; charset=utf-8")
+        return Response(json.dumps({"error": "email and pass required (or hit=email:pass)"}), status=400, mimetype="application/json; charset=utf-8")
 
+    # If no proxy in payload, use device (no proxy)
     proxy_raw = unquote(proxy_raw) if proxy_raw else ""
     proxy = parse_proxy(proxy_raw)
 
@@ -552,15 +551,12 @@ def check():
         )
         body = json.dumps({
             "success": True,
-            "line": line,
             "data": {"country": country, "status": status, "auto_renew": auto_renew, "plan": plan, "currency": currency, "price": price, "plan_period": plan_period, "expiry_date": expiry_date},
             "time": time_str,
         })
         return Response(body, mimetype="application/json; charset=utf-8")
-    fail_line = f"{email}:{pass_} | Error = {err} | Time = {time_str}"
     body = json.dumps({
         "success": False,
-        "line": fail_line,
         "error": err,
         "response": full_response or "",
         "time": time_str,
